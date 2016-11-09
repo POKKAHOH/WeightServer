@@ -4,21 +4,21 @@ our $OS_win = ($^O eq "MSWin32") ? 1 : 0;
 our $fail=0;
 
 use strict;
-use warnings;
+#use warnings;
 use IO::Socket;
 use MBclient;
 use parsec_crc_ether;
 use DBI;
 use DBD::mysql;
 
-my $d_bg=0;
-$| = 1;
-
 if (!$OS_win) {
   $SIG{'TERM'} = 'END_handler';
   $SIG{'ABRT'} = 'END_handler';
   $SIG{'HUP'} = 'END_handler';
 }
+
+my $d_bg=0;
+$| = 1;
 
 ##################### reading PLC init ################################# 
 my $m = MBclient->new() or die "Unable to open TCP socket.\n";
