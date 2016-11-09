@@ -15,27 +15,8 @@ my $d_bg=0;
 $| = 1;
 
 ##################### reading PLC init ################################# 
-my $m = MBclient->new() or die "Unable to open TCP socket.\n";
-
-$m->host("192.168.161.252");
-$m->unit_id(1);
-
 # for print frame and debug string : uncomment this line
 #$m->{debug} = 1 if $d_bg;
-
-#################### reading CAS5010A init #################################
-my $w = new IO::Socket::INET(
-    PeerAddr => '192.168.161.254',
-    PeerPort => 4001,
-    Proto => 'tcp', Timeout => 1) or die('Error opening CAS.');
-
-##################### reading Parsec init #################################
-my $p = new IO::Socket::INET(
-    LocalAddr => '192.168.161.229',
-    LocalPort => 8873,
-    PeerAddr => '192.168.161.253',
-    PeerPort => 8872,
-    Proto => 'udp', Timeout => 1) or die('Error opening Parsec.');
 
 #################### end of configurations #############################################
 
@@ -44,7 +25,9 @@ if (!$OS_win) {
   $SIG{'ABRT'} = 'END_handler';
   $SIG{'HUP'} = 'END_handler';
 }
-
+my $p;
+my $w;
+my $m;
 my $dbh;
 DBConnect('localhost','WeightsDb','ws','12345');
 
@@ -63,14 +46,10 @@ my @res=();
 ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Start proj.pl');");
 while (not $fail) {
 
-# keep alive connections
-  $w->recv($dg,22);
-  $m->read_coils(2052, 1);
-
 # 1.Read ID /set tare/
   ReadTag(1,2,0x62); # Addr, channelNum, Cmd
   $p->recv($dg,42);
-
+  $p->close;
 # check substr($dg,8,1)==0 (NO_ERR)
 
   $cur_tag=unpack( 'N',reverse(substr($dg,10,ord(substr($dg,9,1)))));
@@ -85,6 +64,14 @@ if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
 #   Read MOXA buffer
     $w_ok=1;
     while ($w_ok){
+      undef $w;
+      do {   
+          $w = new IO::Socket::INET(
+                   PeerAddr => '192.168.161.254',
+                   PeerPort => 4001,
+                   Proto => 'tcp', Timeout => 1);
+      } while (!(defined $w));
+    
       for (my $j=0;$j<64;$j++) {$w->recv($dg,1024);}
       $w->recv($dg,22);
 
@@ -106,10 +93,28 @@ if ($d_bg) {
       }# read tare
     } # while
 ##################################################
+    $w->close;
     ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Tare $tare t');");
 # 2.Set ToPlatform (M4)
+    if (!($m->is_open()))
+    {
+      undef $m;
+      do {   
+        $m = MBclient->new();
+        if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+      } while (!($m->is_open()));
+    }
     $m->write_single_coil(2052, 1);
+    
 # 2.1 ReSet EndEnterWait (M5)
+    if (!($m->is_open()))
+    {
+      undef $m;
+      do {   
+        $m = MBclient->new();
+        if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+      } while (!($m->is_open()));
+    }
     $m->write_single_coil(2053, 0);
 print "Position...\n" if $d_bg;
 
@@ -118,10 +123,18 @@ print "Position...\n" if $d_bg;
 # 3.Read ErrPos,InPos,ToLarge,ToPlatform,EndEnterWait (M1,M2,M3,M4,M5)
     undef $bits;
     do {   
-    $bits = $m->read_coils(2049, 5);  
+      if (!($m->is_open()))
+      {
+        undef $m;
+        do {   
+          $m = MBclient->new();
+          if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+        } while (!($m->is_open()));
+      }
+      $bits = $m->read_coils(2049, 5);  
 #print "ErrPos->InPos->ToLarge->$bits->$$bits[0]\t$$bits[1]\t$$bits[2]\n" if $d_bg;
     } while (!(($$bits[0]) or ($$bits[1]) or ($$bits[2]) or ($$bits[4])));;
-
+    $m->close;
 # 4.If InPos Read cas5010a. Write to DB
     if ($$bits[1] eq '1') {
       ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Car in platform');");
@@ -133,6 +146,12 @@ print "while ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
       $w_ok=1;
       while ($w_ok)
       {
+        do {   
+            $w = new IO::Socket::INET(
+                     PeerAddr => '192.168.161.254',
+                     PeerPort => 4001,
+                     Proto => 'tcp', Timeout => 1);
+        } while (!(defined $w));
 
 print "Read CAS...\n" if $d_bg;
 print "mmm7\t$mmm[7]\n" if $d_bg;
@@ -171,14 +190,12 @@ print " ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
 # 5.1.Read ID in Ch#1
             $ch1_tag='0';
             while ($cur_tag ne $ch1_tag){
-# keep alive connections
-              $w->recv($dg,22);
-              $m->read_coils(2052, 1);
 
               ReadTag(1,1,0x62); # Addr, channelNum, Cmd
               $p->recv($dg,42);
 # check substr($dg,8,1)==0 (NO_ERR)
               $ch1_tag=unpack( 'N',reverse(substr($dg,10,ord(substr($dg,9,1)))));
+              $p->close;
 print "Ch1\tCurTag\t$cur_tag; PrvTag\t$prv_tag; Ch1_tag\t$ch1_tag\n" if $d_bg;
               if (($cur_tag ne $ch1_tag) and ($ch1_tag ne '0')){
                 sleep(4); #time grate that 'memory' settings for channel and less that resend time
@@ -199,6 +216,14 @@ print ("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comm
 print ("Err Tag") if $d_bg;
               ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), $mmm[7], $tare, $cur_tag, $cur_tag, 'Erorr read TagId');");
             }
+            if (!($m->is_open()))
+            {
+              undef $m;
+              do {   
+                $m = MBclient->new();
+                if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+              } while (!($m->is_open()));
+            }
             $m->write_single_coil(2048, 1);
             $w_ok=0;
             @res=();
@@ -207,41 +232,87 @@ print ("Err Tag") if $d_bg;
 # DB write OwerLoad
 # 5.Set EndOfCycle (M0)
 print "Owerload.\n" if $d_bg;
-            $m->write_single_coil(2048, 1);
             ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), $mmm[7], $tare, $cur_tag, $cur_tag, 'Owerload');");
+            if (!($m->is_open()))
+            {
+              undef $m;
+              do {   
+                $m = MBclient->new();
+                if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+              } while (!($m->is_open()));
+            }
+            $m->write_single_coil(2048, 1);
           } #OL 
           $prv_w=$mmm[7];
         } # read CAS
       } # mmm ne '0.00'
+      $w->close if defined $w;
+      $m->close if $m->is_open();
     }  #InPos
     if ($$bits[0] eq '1') {
 # DB write ErrPos
 # 5.Set EndOfCycle (M0)
 print "ErrPos.\n" if $d_bg;
       ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 888, $cur_tag, $cur_tag, 'ErrorPos');");
+      if (!($m->is_open()))
+      {
+        undef $m;
+        do {   
+          $m = MBclient->new();
+          if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+        } while (!($m->is_open()));
+      }
       $m->write_single_coil(2048, 1);
+      $m->close if $m->is_open();
     }  #ErrPos
     if ($$bits[2] eq '1') {
 # DB write ToLarge
 # 5.Set EndOfCycle (M0)
 print "Large!\n" if $d_bg;
       ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 999, $cur_tag, $cur_tag, 'ToLarge');");
+      if (!($m->is_open()))
+      {
+        undef $m;
+        do {   
+          $m = MBclient->new();
+          if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+        } while (!($m->is_open()));
+      }
       $m->write_single_coil(2048, 1);
+      $m->close if $m->is_open();
     }  #ToLarge
     if ($$bits[4] eq '1') {
 # EnterTimeOut
 print "TimeOut\n" if $d_bg;
       ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 555, $cur_tag, $cur_tag, 'ReadOutgoingTag');");
+      if (!($m->is_open()))
+      {
+        undef $m;
+        do {   
+          $m = MBclient->new();
+          if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+        } while (!($m->is_open()));
+      }
       $m->write_single_coil(2053, 0);
+      $m->close if $m->is_open();
     }  # EnterTimeOut
 # 6.Read EndOfCycle (M0)
 # 7.If (M0)==0 Goto 1
 print "Go Away...\n" if $d_bg;
     undef $bits;
-    do {   
-    $bits = $m->read_coils(2048, 1);
+    do {
+      if (!($m->is_open()))
+      {
+        undef $m;
+        do {   
+          $m = MBclient->new();
+          if ($m->is_open()) {$m->host("192.168.161.252"); $m->unit_id(1);}
+        } while (!($m->is_open()));
+      }
+      $bits = $m->read_coils(2048, 1);
 print "$bits=>$$bits[0]\n" if $d_bg;
     } while (($$bits[0]) or !(defined $$bits[0]));
+    $m->close if $m->is_open();
     ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ErrPos=$$bits[0], InPos=$$bits[1], ToLarge=$$bits[2], ToPlatform=$$bits[3], EndEnterWait=$$bits[4]');");
   } #$cur_tag ne $prv_tag
   sleep(4);
@@ -249,9 +320,9 @@ print "$bits=>$$bits[0]\n" if $d_bg;
 
 
 #### End ####
-$m->close();
-$w->close;
-$p->close;
+$m->close if $m->is_open();
+$w->close if defined $w;
+$p->close if defined $p;
 ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Exit...');");
 $dbh->disconnect();
 
@@ -265,7 +336,6 @@ sub ReadTag
 {          
   my @buf;
   binmode STDOUT;
-
 #0x80 PACK_TYPE_EVENT    Пакет в формате внутреннего эвента
 #0x81 PACK_TYPE_CONFIG   Пакет с данными конфигурации
 #0x82 PACK_TYPE_COMMAND  Пакет содержит команду встроенному контроллеру
@@ -297,7 +367,16 @@ sub ReadTag
   $buf[$Length+1] = chr($crc);
 
 my $pdata = join("",@buf);
-$p->send($pdata);
+  do {   
+    $p = new IO::Socket::INET(
+             LocalAddr => '192.168.161.229',
+             LocalPort => 8873,
+             PeerAddr => '192.168.161.253',
+             PeerPort => 8872,
+             Proto => 'udp', Timeout => 1);
+  } while (!(defined $p));
+
+  $p->send($pdata);
 }
 
 ##########
