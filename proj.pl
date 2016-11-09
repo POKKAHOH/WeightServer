@@ -3,36 +3,6 @@
 our $OS_win = ($^O eq "MSWin32") ? 1 : 0;
 our $fail=0;
 
-################################################
-#html
-# mysql -N -H -uws -p12345 -e "select '' 'ÕÓÏÂ', '' '◊ËÒÎÓ ÂÈÒÓ‚','' '—ÛÏÏ‡Ì˚È ‚ÂÒ, Ú' union all SELECT Num ,count(Num) , REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',') FROM reestr where TimeKey>STR_TO_DATE('02/11/2016', '%d/%m/%Y') and Weight >1 group by 1 union all SELECT '»ÚÓ„Ó:' ,count(Num), REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',') FROM reestr where TimeKey>STR_TO_DATE('02/11/2016', '%d/%m/%Y') and Weight >1" --database=WeightsDb > report-`date +%Y-%m-%d-%H-%M`.html
-# echo \<meta charset=utf-8\> >>  ./report-`date +%Y-%m-%d-%H-%M`.html
-# mv report-`date +%Y-%m-%d-%H-%M`.html /var/www/reports
-#CSV LAST 12 HOUR
-# mysql --skip-column-names -uws -p12345 -e "select X'EFBBBF', '' ,'' union all select '' 'ÕÓÏÂ', '' '◊ËÒÎÓ ÂÈÒÓ‚','' '—ÛÏÏ‡Ì˚È ‚ÂÒ, Ú' union all SELECT Num ,count(Num) , REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',') FROM reestr where TimeKey>date_sub(now(), INTERVAL 1 HOUR) and Weight >1 group by 1 union all SELECT '»ÚÓ„Ó:' ,count(Num), REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',') FROM reestr where TimeKey>date_sub(now(), INTERVAL 1 HOUR) and Weight >1 into outfile 'tst-`date +%Y-%m-%d-%H-%M`.csv'  FIELDS TERMINATED BY ';'" --database=WeightsDb
-#
-#  mysql --skip-column-names -uws -p12345 -e "
-#select X'EFBBBF', '' ,'' 
-#union all
-#select '' 'ÕÓÏÂ', '' '◊ËÒÎÓ ÂÈÒÓ‚','' '—ÛÏÏ‡Ì˚È ‚ÂÒ, Ú'
-#union all
-#SELECT Num ,count(Num) , REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',')
-#FROM reestr where TimeKey>
-#STR_TO_DATE('02/11/2016', '%d/%m/%Y')  
-#-- date_sub(now(), INTERVAL 1 HOUR)
-#and Weight >1
-#group by 1
-#union all
-#SELECT '»ÚÓ„Ó:' ,count(Num), REPLACE(CAST(round(sum(Weight),3) AS CHAR), '.', ',')
-#FROM reestr where TimeKey>
-#STR_TO_DATE('02/11/2016', '%d/%m/%Y')  
-#-- date_sub(now(), INTERVAL 1 HOUR)
-#and Weight >1
-# into outfile 'tst-1.csv'  FIELDS TERMINATED BY ';'   -- ENCLOSED BY '"'  LINES TERMINATED BY '\r\n' 
-#
-# -- into outfile 'tst-`date +%Y-%m-%d-%H-%M`.csv'  FIELDS TERMINATED BY ';'
-#" --database=WeightsDb
-
 use strict;
 use warnings;
 use IO::Socket;
@@ -90,7 +60,7 @@ my $dg;
 my $prv_w='0.00';
 my $w_ok;
 my @res=();
-
+ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Start proj.pl');");
 while (not $fail) {
 
 # keep alive connections
@@ -106,8 +76,9 @@ while (not $fail) {
   $cur_tag=unpack( 'N',reverse(substr($dg,10,ord(substr($dg,9,1)))));
 print "Ch2\tCurTag\t$cur_tag; PrvTag\t$prv_tag\n" if $d_bg;
 if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
+  ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Read TagId $cur_tag');");
 
-  if (($cur_tag ne $prv_tag) and ($cur_tag ne '0'))  {
+  if (($cur_tag ne '0'))  {
 
     $prv_tag=$cur_tag;
 ############### Set tare #########################
@@ -133,14 +104,16 @@ if ($d_bg) {
  foreach my $m (@mmm) {print "Unpacked : \t $m\n" }
 }
       }# read tare
-    } # TagRead
+    } # while
 ##################################################
-
+    ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Tare $tare t');");
 # 2.Set ToPlatform (M4)
     $m->write_single_coil(2052, 1);
 # 2.1 ReSet EndEnterWait (M5)
     $m->write_single_coil(2053, 0);
 print "Position...\n" if $d_bg;
+
+    ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Enable enter. Reset wait timer.');");
 
 # 3.Read ErrPos,InPos,ToLarge,ToPlatform,EndEnterWait (M1,M2,M3,M4,M5)
     undef $bits;
@@ -151,6 +124,7 @@ print "Position...\n" if $d_bg;
 
 # 4.If InPos Read cas5010a. Write to DB
     if ($$bits[1] eq '1') {
+      ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Car in platform');");
 
       $mmm[7]='0.00';
       $prv_w='-1.00';
@@ -212,6 +186,8 @@ print "Ch1\tCurTag\t$cur_tag; PrvTag\t$prv_tag; Ch1_tag\t$ch1_tag\n" if $d_bg;
                 $ch1_tag='0';
               } # $cur_tag ne $ch1_tag
             } # read ID in Ch#1
+            ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Weight $mmm[7] t');");
+            ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'TagId $cur_tag in platform.');");
 
             @res = ExecSql("select TagId from tags where TagId=$cur_tag;");
 #fetch row @{res[$line]}; fetch field $res[$line][$field]
@@ -242,20 +218,20 @@ print "Owerload.\n" if $d_bg;
 # DB write ErrPos
 # 5.Set EndOfCycle (M0)
 print "ErrPos.\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 888, 888, $cur_tag, $cur_tag, 'ErrorPos');");
+      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 888, $cur_tag, $cur_tag, 'ErrorPos');");
       $m->write_single_coil(2048, 1);
     }  #ErrPos
     if ($$bits[2] eq '1') {
 # DB write ToLarge
 # 5.Set EndOfCycle (M0)
 print "Large!\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 999, 999, $cur_tag, $cur_tag, 'ToLarge');");
+      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 999, $cur_tag, $cur_tag, 'ToLarge');");
       $m->write_single_coil(2048, 1);
     }  #ToLarge
     if ($$bits[4] eq '1') {
 # EnterTimeOut
 print "TimeOut\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 555, 555, $cur_tag, $cur_tag, 'ReadOutgoingTag');");
+      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 555, $cur_tag, $cur_tag, 'ReadOutgoingTag');");
       $m->write_single_coil(2053, 0);
     }  # EnterTimeOut
 # 6.Read EndOfCycle (M0)
@@ -264,8 +240,9 @@ print "Go Away...\n" if $d_bg;
     undef $bits;
     do {   
     $bits = $m->read_coils(2048, 1);
-#print "$bits=>$$bits[0]\n" if $d_bg;
+print "$bits=>$$bits[0]\n" if $d_bg;
     } while (($$bits[0]) or !(defined $$bits[0]));
+    ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ErrPos=$$bits[0], InPos=$$bits[1], ToLarge=$$bits[2], ToPlatform=$$bits[3], EndEnterWait=$$bits[4]');");
   } #$cur_tag ne $prv_tag
   sleep(4);
 } #while (1)
@@ -275,10 +252,12 @@ print "Go Away...\n" if $d_bg;
 $m->close();
 $w->close;
 $p->close;
+ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Exit...');");
 $dbh->disconnect();
 
 sub END_handler {
  $fail++;
+ ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Recive STOP signal');");
 }
 
 
@@ -358,13 +337,13 @@ sub ExecSql {
 
 
 ########## reestr
-#Column		Type		Comment
-#TimeKey	datetime		–í—Ä–µ–º—è
-#Weight		float unsigned [0]	–í–µ—Å —Å —Ç–∞—Ä–æ–π
-#Tare		float			–¢–∞—Ä–∞
-#TagId		int(11) unsigned	RF –º–µ—Ç–∫–∞
-#Num		int(11)			–ù–æ–º–µ—Ä –≥–∞—Ä–∞–∂–Ω—ã–π
-#Comments	text			–ü—Ä–∏–º–µ—á–∞–Ω–∏—è 
+#Column         Type            Comment
+#TimeKey        datetime                –í—Ä–µ–º—è
+#Weight         float unsigned [0]      –í–µ—Å —Å —Ç–∞—Ä–æ–π
+#Tare           float                   –¢–∞—Ä–∞
+#TagId          int(11) unsigned        RF –º–µ—Ç–∫–∞
+#Num            int(11)                 –ù–æ–º–µ—Ä –≥–∞—Ä–∞–∂–Ω—ã–π
+#Comments       text                    –ü—Ä–∏–º–µ—á–∞–Ω–∏—è
 ########## tags
-#TagID	int(11) unsigned	–î–µ—Å—è—Ç–∏—á–Ω—ã–π –Ω–æ–º–µ—Ä –º–µ—Ç–∫–∏
-#Number	int(11) unsigned	–ì–∞—Ä–∞–∂–Ω—ã–π –Ω–æ–º–µ—Ä 
+#TagID  int(11) unsigned        –î–µ—Å—è—Ç–∏—á–Ω—ã–π –Ω–æ–º–µ—Ä –º–µ—Ç–∫–∏
+#Number int(11) unsigned        –ì–∞—Ä–∞–∂–Ω—ã–π –Ω–æ–º–µ—Ä
