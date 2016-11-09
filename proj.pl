@@ -14,6 +14,12 @@ use DBD::mysql;
 my $d_bg=0;
 $| = 1;
 
+if (!$OS_win) {
+  $SIG{'TERM'} = 'END_handler';
+  $SIG{'ABRT'} = 'END_handler';
+  $SIG{'HUP'} = 'END_handler';
+}
+
 ##################### reading PLC init ################################# 
 my $m = MBclient->new() or die "Unable to open TCP socket.\n";
 
@@ -22,6 +28,21 @@ $m->unit_id(1);
 
 # for print frame and debug string : uncomment this line
 #$m->{debug} = 1 if $d_bg;
+#Init,S12,Исходное состояние системы
+#EnterToPlatform,S10,Въезд на платформу
+#Middle,S15,Позиционирование на платформе
+#InPlatform,S13,Позиционирование на платформе
+#Main,S14,Взвешивание
+#GoAway,S11,ВЫезд с весов
+$m->read_coils(0,16);
+if $$bits[14] {
+  $m->write_single_coil(2048, 1);
+  $m->write_single_coil(2053, 0);
+  undef $bits;
+  do {   
+    $bits = $m->read_coils(2048, 1);
+  } while (($$bits[0]) or !(defined $$bits[0]));
+};
 
 #################### reading CAS5010A init #################################
 my $w = new IO::Socket::INET(
@@ -38,12 +59,6 @@ my $p = new IO::Socket::INET(
     Proto => 'udp', Timeout => 1) or die('Error opening Parsec.');
 
 #################### end of configurations #############################################
-
-if (!$OS_win) {
-  $SIG{'TERM'} = 'END_handler';
-  $SIG{'ABRT'} = 'END_handler';
-  $SIG{'HUP'} = 'END_handler';
-}
 
 my $dbh;
 DBConnect('localhost','WeightsDb','ws','12345');
