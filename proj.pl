@@ -19,6 +19,22 @@ if (!$OS_win) {
 
 my $d_bg=0;
 $| = 1;
+#########
+my $dbh;
+my $prv_tag='0';
+my $cur_tag='0';
+my $ch1_tag='0';
+my $bits;
+my $tare=0;
+my @mmm;
+my $dg;
+my $prv_w='0.00';
+my $w_ok;
+my @res=();
+
+DBConnect('localhost','WeightsDb','ws','12345');
+
+ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Start proj.pl');");
 
 ##################### reading PLC init ################################# 
 my $m = MBclient->new() or die "Unable to open TCP socket.\n";
@@ -34,15 +50,16 @@ $m->unit_id(1);
 #InPlatform,S13,Позиционирование на платформе
 #Main,S14,Взвешивание
 #GoAway,S11,ВЫезд с весов
-$m->read_coils(0,16);
-if $$bits[14] {
+$bits=$m->read_coils(0,16);
+if ($$bits[14]) {
   $m->write_single_coil(2048, 1);
   $m->write_single_coil(2053, 0);
   undef $bits;
   do {   
+    last if $fail;
     $bits = $m->read_coils(2048, 1);
   } while (($$bits[0]) or !(defined $$bits[0]));
-};
+}
 
 #################### reading CAS5010A init #################################
 my $w = new IO::Socket::INET(
@@ -60,22 +77,6 @@ my $p = new IO::Socket::INET(
 
 #################### end of configurations #############################################
 
-my $dbh;
-DBConnect('localhost','WeightsDb','ws','12345');
-
-
-#########
-my $prv_tag='0';
-my $cur_tag='0';
-my $ch1_tag='0';
-my $bits;
-my $tare=0;
-my @mmm;
-my $dg;
-my $prv_w='0.00';
-my $w_ok;
-my @res=();
-ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Start proj.pl');");
 while (not $fail) {
 
 # keep alive connections
@@ -100,6 +101,7 @@ if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
 #   Read MOXA buffer
     $w_ok=1;
     while ($w_ok){
+      last if $fail;
       for (my $j=0;$j<64;$j++) {$w->recv($dg,1024);}
       $w->recv($dg,22);
 
@@ -133,7 +135,8 @@ print "Position...\n" if $d_bg;
 # 3.Read ErrPos,InPos,ToLarge,ToPlatform,EndEnterWait (M1,M2,M3,M4,M5)
     undef $bits;
     do {   
-    $bits = $m->read_coils(2049, 5);  
+      $bits = $m->read_coils(2049, 5);
+      last if $fail;     
 #print "ErrPos->InPos->ToLarge->$bits->$$bits[0]\t$$bits[1]\t$$bits[2]\n" if $d_bg;
     } while (!(($$bits[0]) or ($$bits[1]) or ($$bits[2]) or ($$bits[4])));;
 
@@ -148,7 +151,7 @@ print "while ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
       $w_ok=1;
       while ($w_ok)
       {
-
+        last if $fail;
 print "Read CAS...\n" if $d_bg;
 print "mmm7\t$mmm[7]\n" if $d_bg;
         for (my $j=0;$j<64;$j++) { 
@@ -186,6 +189,7 @@ print " ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
 # 5.1.Read ID in Ch#1
             $ch1_tag='0';
             while ($cur_tag ne $ch1_tag){
+              last if $fail;
 # keep alive connections
               $w->recv($dg,22);
               $m->read_coils(2052, 1);
@@ -254,7 +258,8 @@ print "TimeOut\n" if $d_bg;
 print "Go Away...\n" if $d_bg;
     undef $bits;
     do {   
-    $bits = $m->read_coils(2048, 1);
+      last if $fail;
+      $bits = $m->read_coils(2048, 1);
 print "$bits=>$$bits[0]\n" if $d_bg;
     } while (($$bits[0]) or !(defined $$bits[0]));
     ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ErrPos=$$bits[0], InPos=$$bits[1], ToLarge=$$bits[2], ToPlatform=$$bits[3], EndEnterWait=$$bits[4]');");
@@ -262,11 +267,10 @@ print "$bits=>$$bits[0]\n" if $d_bg;
   sleep(4);
 } #while (1)
 
-
 #### End ####
-$m->close();
-$w->close;
-$p->close;
+$m->close() if $m->is_open();
+$w->close if defined $w;
+$p->close if defined $p;
 ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Exit...');");
 $dbh->disconnect();
 
@@ -274,7 +278,6 @@ sub END_handler {
  $fail++;
  ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Recive STOP signal');");
 }
-
 
 sub ReadTag
 {          
