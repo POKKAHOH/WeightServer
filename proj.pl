@@ -59,6 +59,7 @@ if ($$bits[14]) {
     last if $fail;
     $bits = $m->read_coils(2048, 1);
   } while (($$bits[0]) or !(defined $$bits[0]));
+  ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'PLC rearmed');");
 }
 
 #################### reading CAS5010A init #################################
@@ -97,6 +98,7 @@ if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
   if (($cur_tag ne '0'))  {
 
     $prv_tag=$cur_tag;
+
 ############### Set tare #########################
 #   Read MOXA buffer
     $w_ok=1;
@@ -104,7 +106,8 @@ if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
       last if $fail;
       for (my $j=0;$j<64;$j++) {$w->recv($dg,1024);}
       $w->recv($dg,22);
-
+      ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'MOXA buffer cleared');");
+      
       if ($dg=~m/(US|ST|OL),(GS|NT),.{2},.{11}/g) {
         @mmm = unpack ('A2A1A2A1H2b8A1A8A1A2', $dg);
         $mmm[7]=~s/\s+//;  #$mmm[9]=kg;
@@ -160,6 +163,7 @@ print "mmm7\t$mmm[7]\n" if $d_bg;
         }
         
         $w->recv($dg,22);
+        ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Read CAS');");
 print "Recive: " . length($dg) . " byte\nRaw data:\t$dg\n" if $d_bg;
 
         if ($dg=~m/(US|ST|OL),(GS|NT),.{2},.{11}/g) {
@@ -193,6 +197,7 @@ print " ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
 # keep alive connections
               $w->recv($dg,22);
               $m->read_coils(2052, 1);
+              ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'TagId $cur_tag in platform.');");
 
               ReadTag(1,1,0x62); # Addr, channelNum, Cmd
               $p->recv($dg,42);
@@ -226,8 +231,9 @@ print ("Err Tag") if $d_bg;
 # DB write OwerLoad
 # 5.Set EndOfCycle (M0)
 print "Owerload.\n" if $d_bg;
-            $m->write_single_coil(2048, 1);
+            ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Owerload.');");
             ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), $mmm[7], $tare, $cur_tag, $cur_tag, 'Owerload');");
+            $m->write_single_coil(2048, 1);
           } #OL 
           $prv_w=$mmm[7];
         } # read CAS
@@ -237,32 +243,32 @@ print "Owerload.\n" if $d_bg;
 # DB write ErrPos
 # 5.Set EndOfCycle (M0)
 print "ErrPos.\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 888, $cur_tag, $cur_tag, 'ErrorPos');");
+      ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ERROR:ErrPos.');");
       $m->write_single_coil(2048, 1);
     }  #ErrPos
     if ($$bits[2] eq '1') {
 # DB write ToLarge
 # 5.Set EndOfCycle (M0)
 print "Large!\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 999, $cur_tag, $cur_tag, 'ToLarge');");
+      ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ERROR:Car to large.');");
       $m->write_single_coil(2048, 1);
     }  #ToLarge
     if ($$bits[4] eq '1') {
 # EnterTimeOut
 print "TimeOut\n" if $d_bg;
-      ExecSql("INSERT INTO `reestr` (`TimeKey`, `Weight`, `Tare`, `TagId`, `Num`, `Comments`) VALUES (now(), 0, 555, $cur_tag, $cur_tag, 'ReadOutgoingTag');");
+      ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ERROR:Timeout to enter');");
       $m->write_single_coil(2053, 0);
     }  # EnterTimeOut
 # 6.Read EndOfCycle (M0)
 # 7.If (M0)==0 Goto 1
 print "Go Away...\n" if $d_bg;
+    ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ErrPos=$$bits[0], InPos=$$bits[1], ToLarge=$$bits[2], ToPlatform=$$bits[3], EndEnterWait=$$bits[4]');");
     undef $bits;
     do {   
       last if $fail;
       $bits = $m->read_coils(2048, 1);
 print "$bits=>$$bits[0]\n" if $d_bg;
     } while (($$bits[0]) or !(defined $$bits[0]));
-    ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'ErrPos=$$bits[0], InPos=$$bits[1], ToLarge=$$bits[2], ToPlatform=$$bits[3], EndEnterWait=$$bits[4]');");
   } #$cur_tag ne $prv_tag
   sleep(4);
 } #while (1)
