@@ -44,6 +44,7 @@ $m->unit_id(1);
 
 # for print frame and debug string : uncomment this line
 #$m->{debug} = 1 if $d_bg;
+#$m->{debug} = 1;
 #Init,S12,Исходное состояние системы
 #EnterToPlatform,S10,Въезд на платформу
 #Middle,S15,Позиционирование на платформе
@@ -98,7 +99,6 @@ if ( $d_bg and ($cur_tag eq '0')) {$prv_tag=$cur_tag;}
   if (($cur_tag ne '0'))  {
 
     $prv_tag=$cur_tag;
-
 ############### Set tare #########################
 #   Read MOXA buffer
     $w_ok=1;
@@ -161,9 +161,9 @@ print "mmm7\t$mmm[7]\n" if $d_bg;
           $w->recv($dg,1024); 
 #print "Read MOXA buffer "."."x$j."\n"  if $d_bg;
         }
-        
-        $w->recv($dg,22);
         ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Read CAS');");
+
+        $w->recv($dg,22);
 print "Recive: " . length($dg) . " byte\nRaw data:\t$dg\n" if $d_bg;
 
         if ($dg=~m/(US|ST|OL),(GS|NT),.{2},.{11}/g) {
@@ -289,13 +289,11 @@ sub ReadTag
 {          
   my @buf;
   binmode STDOUT;
-
 #0x80 PACK_TYPE_EVENT    Пакет в формате внутреннего эвента
 #0x81 PACK_TYPE_CONFIG   Пакет с данными конфигурации
 #0x82 PACK_TYPE_COMMAND  Пакет содержит команду встроенному контроллеру
 #0x83 PACK_TYPE_GET_DATA Пакет содержит статус контроллера
 #0x84 PACK_TYPE_TRANSACT Пакет является транзакцией от считывателя
-
   $buf[0]=chr(0x01);  #$pkt_num;
   $buf[1]=chr($_[0]); #$addr;
   $buf[2]=chr(0x83);  #PACKET_TYPE_GET_DATA
