@@ -197,7 +197,7 @@ print " ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
 # keep alive connections
               $w->recv($dg,22);
               $m->read_coils(2052, 1);
-              ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'TagId $cur_tag in platform.');");
+              ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'TagId $cur_tag in platform. CH1 $ch1_tag');");
 
               ReadTag(1,1,0x62); # Addr, channelNum, Cmd
               $p->recv($dg,42);
