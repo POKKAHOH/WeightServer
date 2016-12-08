@@ -205,10 +205,11 @@ print " ->($mmm[7] gt $prv_w)\tcur $mmm[7]\tprv $prv_w\n"if $d_bg;
               $ch1_tag=unpack( 'N',reverse(substr($dg,10,ord(substr($dg,9,1)))));
 print "Ch1\tCurTag\t$cur_tag; PrvTag\t$prv_tag; Ch1_tag\t$ch1_tag\n" if $d_bg;
               if (($cur_tag ne $ch1_tag) and ($ch1_tag ne '0')){
-                sleep(4); #time grate that 'memory' settings for channel and less that resend time
+                ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'CH2 $cur_tag CH1 $ch1_tag');");
                 $cur_tag=$ch1_tag;	
                 $ch1_tag='0';
               } # $cur_tag ne $ch1_tag
+              sleep(4) if ($ch1_tag eq '0'); #time grate that 'memory' settings for channel and less that resend time
             } # read ID in Ch#1
             ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Weight $mmm[7] t');");
             ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'TagId $cur_tag in platform.');");
