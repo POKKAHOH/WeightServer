@@ -162,7 +162,7 @@ print "mmm7\t$mmm[7]\n" if $d_bg;
 #print "Read MOXA buffer "."."x$j."\n"  if $d_bg;
         }
         ExecSql("INSERT INTO `Logs` (`TimeKey`, `Pid`, `Comments`) VALUES (now(),$$,'Read CAS');");
-
+        
         $w->recv($dg,22);
 print "Recive: " . length($dg) . " byte\nRaw data:\t$dg\n" if $d_bg;
 
